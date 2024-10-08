@@ -1,5 +1,5 @@
 ## 1.训练并导出ONNX模型  
-克隆YOLOv8仓库  <br>
+克隆YOLOv8仓库\<br>
 ```git clone https://github.com/ultralytics/ultralytics.git\<br>
 由于YOLOv8的官方仓库主分支已变为YOLO11，这里切换v8分支<br>
 ```cd ultralytics<br>
