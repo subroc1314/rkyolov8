@@ -1,0 +1,79 @@
+diff --git a/export_onnx.py b/export_onnx.py
+new file mode 100644
+index 00000000..ed259b1a
+--- /dev/null
++++ b/export_onnx.py
+@@ -0,0 +1,7 @@
++from ultralytics import YOLO
++
++# 加载模型
++model = YOLO('weights/best.pt')
++# 加载模型配置文件，注意需要匹配
++model = YOLO('yolov8n.yaml')
++
+diff --git a/ultralytics/engine/model.py b/ultralytics/engine/model.py
+index 806b0346..3db7f152 100644
+--- a/ultralytics/engine/model.py
++++ b/ultralytics/engine/model.py
+@@ -136,6 +136,19 @@ class Model(nn.Module):
+         self.model.args = {**DEFAULT_CFG_DICT, **self.overrides}  # combine default and model args (prefer model args)
+         self.model.task = self.task
+ 
++        print("保存为onnx格式")
++        import torch
++        self.model.fuse() 
++        self.model.eval()
++        self.model.load_state_dict(torch.load('weights/yolov8.dict.pt', map_location='cpu'), strict=False)
++
++        dummy_input = torch.randn(1, 3, 640, 640)
++        input_names = ["data"]
++        output_names = ["reg1","cls1","reg2","cls2","reg3","cls3"]
++        torch.onnx.export(self.model, dummy_input, "weights/yolov8.dict.onnx", verbose=True, input_names=input_names,
++                            output_names=output_names, opset_version=11)
++        print("done!")
++
+     def _load(self, weights: str, task=None):
+         """
+         Initializes a new model and infers the task type from the model head.
+@@ -158,6 +171,12 @@ class Model(nn.Module):
+         self.overrides['model'] = weights
+         self.overrides['task'] = self.task
+ 
++        print("重新保存为yolov8 state_dict的格式")
++        import torch
++        self.model.fuse()
++        self.model.eval()
++        torch.save(self.model.state_dict(), 'weights/yolov8.dict.pt')
++
+     def _check_is_pytorch_model(self):
+         """Raises TypeError is model is not a PyTorch model."""
+         pt_str = isinstance(self.model, (str, Path)) and Path(self.model).suffix == '.pt'
+diff --git a/ultralytics/nn/modules/head.py b/ultralytics/nn/modules/head.py
+index 95c6457f..496d49cc 100644
+--- a/ultralytics/nn/modules/head.py
++++ b/ultralytics/nn/modules/head.py
+@@ -39,9 +39,24 @@ class Detect(nn.Module):
+         self.cv3 = nn.ModuleList(nn.Sequential(Conv(x, c3, 3), Conv(c3, c3, 3), nn.Conv2d(c3, self.nc, 1)) for x in ch)
+         self.dfl = DFL(self.reg_max) if self.reg_max > 1 else nn.Identity()
+ 
++        print('自定义的模型初始化...')
++        self.conv1x1 = nn.Conv2d(16,1,1, bias=False).requires_grad_(False)
++        xx = torch.arange(16, dtype=torch.float)
++        self.conv1x1.weight.data[:] = nn.Parameter(xx.view(1,16,1,1))
++
+     def forward(self, x):
+         """Concatenates and returns predicted bounding boxes and class probabilities."""
+         shape = x[0].shape  # BCHW
++        
++        # 将原来的代码注释掉，直接返回原始的6个输出
++        y = []
++        for i in range(self.nl):
++           t1 = self.cv2[i](x[i])
++           t2 = self.cv3[i](x[i])
++           y.append(self.conv1x1(t1.view(t1.shape[0], 4, 16, -1).transpose(2,1).softmax(1)))
++           y.append(t2)
++        return y
++    
+         for i in range(self.nl):
+             x[i] = torch.cat((self.cv2[i](x[i]), self.cv3[i](x[i])), 1)
+         if self.training:
